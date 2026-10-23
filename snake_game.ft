@@ -1,0 +1,238 @@
+# FrontLang 2D Snake Game
+# Features: Smooth grid movement, food spawning, self-collision detection,
+# audio tone effects, score tracking, and restart mechanics.
+
+include "std:gui"
+include "std:game"
+include "std:math"
+include "std:audio"
+include "std:string"
+
+fn main() -> Int:
+    # 1. Initialize Window & Viewport
+    let win_w = 640
+    let win_h = 520
+    gui_init_window(win_w, win_h, "Snake Game in FrontLang")
+
+    # 2. Grid & Playfield Dimensions
+    let grid_size = 20
+    let min_grid_x = 1
+    let max_grid_x = 30
+    let min_grid_y = 3
+    let max_grid_y = 24
+
+    # Pixel offsets for the playfield
+    let play_x = min_grid_x * grid_size
+    let play_y = min_grid_y * grid_size
+    let play_w = (max_grid_x - min_grid_x + 1) * grid_size
+    let play_h = (max_grid_y - min_grid_y + 1) * grid_size
+
+    # 3. Colors Palette
+    let bg_color = color_rgb(15, 17, 26)
+    let play_bg = color_rgb(22, 25, 38)
+    let border_color = color_rgb(50, 60, 85)
+    let head_color = color_rgb(0, 255, 180)
+    let body_color = color_rgb(0, 200, 140)
+    let food_color = color_rgb(255, 80, 100)
+    let text_white = color_white()
+    let text_gold = color_rgb(255, 215, 0)
+    let game_over_color = color_rgb(255, 70, 70)
+
+    # 4. Snake State (Supports up to 800 segments)
+    let max_segments = 800
+    let snake_x = array_new(max_segments, 0)
+    let snake_y = array_new(max_segments, 0)
+
+    let snake_len = 4
+    snake_x[0] = 15
+    snake_y[0] = 14
+    snake_x[1] = 14
+    snake_y[1] = 14
+    snake_x[2] = 13
+    snake_y[2] = 14
+    snake_x[3] = 12
+    snake_y[3] = 14
+
+    # Direction: dx, dy (1, 0 is right)
+    let dir_x = 1
+    let dir_y = 0
+    let next_dir_x = 1
+    let next_dir_y = 0
+
+    # Food Position
+    let food_x = 22
+    let food_y = 14
+
+    # Game Scores & Timing
+    let score = 0
+    let high_score = 0
+    let game_over = false
+    let move_delay_ms = 110
+    let last_move_time = time_get_ticks_ms()
+
+    # 5. Main Game Loop
+    let running = true
+    while running and not gui_window_should_close():
+        gui_begin_frame()
+        gui_poll_events()
+
+        # Exit check
+        if gui_is_key_down(KEY_ESCAPE):
+            running = false
+
+        # Player Input Controls
+        if not game_over:
+            if (gui_is_key_down(KEY_UP) or gui_is_key_down(KEY_W)) and dir_y == 0:
+                next_dir_x = 0
+                next_dir_y = -1
+            elif (gui_is_key_down(KEY_DOWN) or gui_is_key_down(KEY_S)) and dir_y == 0:
+                next_dir_x = 0
+                next_dir_y = 1
+            elif (gui_is_key_down(KEY_LEFT) or gui_is_key_down(KEY_A)) and dir_x == 0:
+                next_dir_x = -1
+                next_dir_y = 0
+            elif (gui_is_key_down(KEY_RIGHT) or gui_is_key_down(KEY_D)) and dir_x == 0:
+                next_dir_x = 1
+                next_dir_y = 0
+        else:
+            # Restart game when 'R' or Space is pressed
+            if gui_is_key_down(KEY_R) or gui_is_key_down(KEY_SPACE):
+                snake_len = 4
+                snake_x[0] = 15
+                snake_y[0] = 14
+                snake_x[1] = 14
+                snake_y[1] = 14
+                snake_x[2] = 13
+                snake_y[2] = 14
+                snake_x[3] = 12
+                snake_y[3] = 14
+                dir_x = 1
+                dir_y = 0
+                next_dir_x = 1
+                next_dir_y = 0
+                score = 0
+                game_over = false
+                food_x = math_rand_int(min_grid_x + 1, max_grid_x - 1)
+                food_y = math_rand_int(min_grid_y + 1, max_grid_y - 1)
+                last_move_time = time_get_ticks_ms()
+
+        # Update Logic (Ticked by time)
+        let now = time_get_ticks_ms()
+        if not game_over and (now - last_move_time >= move_delay_ms):
+            last_move_time = now
+            dir_x = next_dir_x
+            dir_y = next_dir_y
+
+            # Calculate new head position
+            let new_head_x = snake_x[0] + dir_x
+            let new_head_y = snake_y[0] + dir_y
+
+            # Wall Collision Detection
+            if new_head_x < min_grid_x or new_head_x > max_grid_x or new_head_y < min_grid_y or new_head_y > max_grid_y:
+                game_over = true
+                audio_play_tone(180, 120)
+                if score > high_score:
+                    high_score = score
+            else:
+                # Self-Collision Detection
+                let i = 0
+                while i < snake_len:
+                    if snake_x[i] == new_head_x and snake_y[i] == new_head_y:
+                        game_over = true
+                        audio_play_tone(180, 120)
+                        if score > high_score:
+                            high_score = score
+                    i = i + 1
+
+                if not game_over:
+                    # Check Food Collision
+                    let ate_food = false
+                    if new_head_x == food_x and new_head_y == food_y:
+                        ate_food = true
+                        score = score + 10
+                        if score > high_score:
+                            high_score = score
+                        if snake_len < max_segments - 1:
+                            snake_len = snake_len + 1
+                        audio_play_tone(900, 30)
+
+                        # Generate new food location
+                        food_x = math_rand_int(min_grid_x, max_grid_x)
+                        food_y = math_rand_int(min_grid_y, max_grid_y)
+
+                    # Shift snake body backwards
+                    let move_idx = snake_len - 1
+                    while move_idx > 0:
+                        snake_x[move_idx] = snake_x[move_idx - 1]
+                        snake_y[move_idx] = snake_y[move_idx - 1]
+                        move_idx = move_idx - 1
+
+                    # Place new head position
+                    snake_x[0] = new_head_x
+                    snake_y[0] = new_head_y
+
+        # --- RENDERING ---
+        # 1. Clear Screen
+        gui_clear(bg_color)
+
+        # 2. Draw Header & HUD
+        gui_draw_text("SNAKE", 20, 15, 2, head_color)
+        gui_draw_text("SCORE:", 170, 18, 1, text_white)
+        gui_draw_text(int_to_string(score), 240, 18, 1, text_gold)
+        gui_draw_text("BEST:", 320, 18, 1, text_white)
+        gui_draw_text(int_to_string(high_score), 375, 18, 1, head_color)
+
+        let fps = gui_get_fps()
+        gui_draw_text(int_to_string(fps), win_w - 75, 18, 1, color_gray())
+        gui_draw_text("FPS", win_w - 45, 18, 1, color_gray())
+
+        # 3. Draw Playing Field Area & Border
+        gui_draw_rect(play_x, play_y, play_w, play_h, play_bg)
+        gui_draw_rect(play_x - 2, play_y - 2, play_w + 4, 2, border_color)
+        gui_draw_rect(play_x - 2, play_y + play_h, play_w + 4, 2, border_color)
+        gui_draw_rect(play_x - 2, play_y - 2, 2, play_h + 4, border_color)
+        gui_draw_rect(play_x + play_w, play_y - 2, 2, play_h + 4, border_color)
+
+        # 4. Draw Food (Apple with slight inner margin)
+        let food_px = food_x * grid_size + 2
+        let food_py = food_y * grid_size + 2
+        let food_dim = grid_size - 4
+        gui_draw_rect(food_px, food_py, food_dim, food_dim, food_color)
+
+        # 5. Draw Snake Body & Head
+        let seg_idx = snake_len - 1
+        while seg_idx >= 0:
+            let seg_px = snake_x[seg_idx] * grid_size + 1
+            let seg_py = snake_y[seg_idx] * grid_size + 1
+            let seg_dim = grid_size - 2
+            if seg_idx == 0:
+                gui_draw_rect(seg_px, seg_py, seg_dim, seg_dim, head_color)
+            else:
+                gui_draw_rect(seg_px, seg_py, seg_dim, seg_dim, body_color)
+            seg_idx = seg_idx - 1
+
+        # 6. Bottom Controls Guide
+        gui_draw_text("ARROWS / WASD: MOVE    ESC: QUIT    R: RESTART", 20, win_h - 18, 1, color_gray())
+
+        # 7. Game Over Overlay
+        if game_over:
+            let card_w = 320
+            let card_h = 130
+            let card_x = (win_w - card_w) / 2
+            let card_y = (win_h - card_h) / 2
+            gui_draw_rect(card_x, card_y, card_w, card_h, color_rgb(25, 28, 42))
+            gui_draw_rect(card_x - 2, card_y - 2, card_w + 4, 2, game_over_color)
+            gui_draw_rect(card_x - 2, card_y + card_h, card_w + 4, 2, game_over_color)
+            gui_draw_rect(card_x - 2, card_y - 2, 2, card_h + 4, game_over_color)
+            gui_draw_rect(card_x + card_w, card_y - 2, 2, card_h + 4, game_over_color)
+
+            gui_draw_text("GAME OVER", card_x + 65, card_y + 25, 2, game_over_color)
+            gui_draw_text("FINAL SCORE: " + int_to_string(score), card_x + 85, card_y + 65, 1, text_white)
+            gui_draw_text("PRESS 'R' TO PLAY AGAIN", card_x + 55, card_y + 95, 1, text_gold)
+
+        # 8. Present Frame
+        gui_end_frame()
+
+    # Cleanup Window
+    gui_close_window()
+    return 0

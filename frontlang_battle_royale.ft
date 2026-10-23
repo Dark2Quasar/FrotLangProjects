@@ -1,0 +1,471 @@
+include "std:gui"
+
+include "std:game"
+
+include "std:math"
+
+include "std:string"
+
+fn map_screen_x(world_x: Float) -> Int:
+    return 744 + to_int(world_x * 1.55)
+
+fn map_screen_y(world_z: Float) -> Int:
+    return 132 + to_int(world_z * 1.55)
+
+fn world_depth(world_x: Float, world_z: Float, camera_x: Float, camera_z: Float, camera_yaw: Float) -> Float:
+    let dx = world_x - camera_x
+    let dz = world_z - camera_z
+    return dx * cos(camera_yaw) + dz * sin(camera_yaw)
+
+fn world_screen_x(world_x: Float, world_z: Float, camera_x: Float, camera_z: Float, camera_yaw: Float) -> Int:
+    let dx = world_x - camera_x
+    let dz = world_z - camera_z
+    let view_x = -dx * sin(camera_yaw) + dz * cos(camera_yaw)
+    let depth = world_depth(world_x, world_z, camera_x, camera_z, camera_yaw)
+    if depth < 0.5:
+        depth = 0.5
+    return 350 + to_int(view_x * 330.0 / depth)
+
+fn world_screen_y(world_x: Float, world_y: Float, world_z: Float, camera_x: Float, camera_pitch: Float, camera_z: Float, camera_yaw: Float) -> Int:
+    let depth = world_depth(world_x, world_z, camera_x, camera_z, camera_yaw)
+    let height = world_y - 1.6
+    let view_height = height * cos(camera_pitch) - depth * sin(camera_pitch)
+    let view_depth = depth * cos(camera_pitch) + height * sin(camera_pitch)
+    if view_depth < 0.5:
+        view_depth = 0.5
+    return 330 - to_int(view_height * 330.0 / view_depth)
+
+fn draw_world_line(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float, camera_x: Float, camera_pitch: Float, camera_z: Float, camera_yaw: Float, col: Color):
+    let depth1 = world_depth(x1, z1, camera_x, camera_z, camera_yaw)
+    let depth2 = world_depth(x2, z2, camera_x, camera_z, camera_yaw)
+    if depth1 > 0.5 and depth2 > 0.5:
+        gui_draw_line(world_screen_x(x1, z1, camera_x, camera_z, camera_yaw), world_screen_y(x1, y1, z1, camera_x, camera_pitch, camera_z, camera_yaw), world_screen_x(x2, z2, camera_x, camera_z, camera_yaw), world_screen_y(x2, y2, z2, camera_x, camera_pitch, camera_z, camera_yaw), col)
+
+fn draw_building(x: Float, z: Float, width: Float, depth: Float, height: Float, camera_x: Float, camera_pitch: Float, camera_z: Float, camera_yaw: Float):
+    let ground_level = height - height
+    let left = x - width * 0.5
+    let right = x + width * 0.5
+    let back = z - depth * 0.5
+    let front = z + depth * 0.5
+    let wall = color_rgb(177, 151, 111)
+    let roof = color_rgb(222, 185, 120)
+    draw_world_line(left, ground_level, back, right, ground_level, back, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(right, ground_level, back, right, ground_level, front, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(right, ground_level, front, left, ground_level, front, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(left, ground_level, front, left, ground_level, back, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(left, height, back, right, height, back, camera_x, camera_pitch, camera_z, camera_yaw, roof)
+    draw_world_line(right, height, back, right, height, front, camera_x, camera_pitch, camera_z, camera_yaw, roof)
+    draw_world_line(right, height, front, left, height, front, camera_x, camera_pitch, camera_z, camera_yaw, roof)
+    draw_world_line(left, height, front, left, height, back, camera_x, camera_pitch, camera_z, camera_yaw, roof)
+    draw_world_line(left, ground_level, back, left, height, back, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(right, ground_level, back, right, height, back, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(right, ground_level, front, right, height, front, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+    draw_world_line(left, ground_level, front, left, height, front, camera_x, camera_pitch, camera_z, camera_yaw, wall)
+
+fn draw_humanoid(x: Float, z: Float, camera_x: Float, camera_pitch: Float, camera_z: Float, camera_yaw: Float, col: Color):
+    let foot_level = x - x
+    draw_world_line(x, 0.2, z, x, 1.05, z, camera_x, camera_pitch, camera_z, camera_yaw, col)
+    draw_world_line(x, 0.78, z, x - 0.34, 0.48, z, camera_x, camera_pitch, camera_z, camera_yaw, col)
+    draw_world_line(x, 0.78, z, x + 0.34, 0.48, z, camera_x, camera_pitch, camera_z, camera_yaw, col)
+    draw_world_line(x, 0.2, z, x - 0.22, foot_level, z, camera_x, camera_pitch, camera_z, camera_yaw, col)
+    draw_world_line(x, 0.2, z, x + 0.22, foot_level, z, camera_x, camera_pitch, camera_z, camera_yaw, col)
+    let depth = world_depth(x, z, camera_x, camera_z, camera_yaw)
+    if depth > 0.5:
+        let head_x = world_screen_x(x, z, camera_x, camera_z, camera_yaw)
+        let head_y = world_screen_y(x, 1.25, z, camera_x, camera_pitch, camera_z, camera_yaw)
+        let head_size = to_int(70.0 / depth)
+        if head_size < 2:
+            head_size = 2
+        gui_draw_circle(head_x, head_y, head_size, col)
+
+fn main() -> Int:
+    let window_w = 980
+    let window_h = 700
+    gui_init_window(window_w, window_h, "FrontLang Royale")
+    let bot_x = array_new(10, to_float(0))
+    let bot_z = array_new(10, to_float(0))
+    let bot_health = array_new(10, to_float(100))
+    let bot_alive = array_new(10, 1)
+    let bot_fire_timer = array_new(10, to_float(1))
+    let bullet_x = array_new(24, to_float(0))
+    let bullet_z = array_new(24, to_float(0))
+    let bullet_y = array_new(24, to_float(0))
+    let bullet_vx = array_new(24, to_float(0))
+    let bullet_vz = array_new(24, to_float(0))
+    let bullet_vy = array_new(24, to_float(0))
+    let bullet_active = array_new(24, 0)
+    let loot_x = array_new(5, to_float(0))
+    let loot_z = array_new(5, to_float(0))
+    let loot_kind = array_new(5, 0)
+    let loot_active = array_new(5, 1)
+    bot_x[0] = to_float(18)
+    bot_z[0] = to_float(18)
+    bot_x[1] = to_float(42)
+    bot_z[1] = to_float(14)
+    bot_x[2] = to_float(82)
+    bot_z[2] = to_float(18)
+    bot_x[3] = to_float(96)
+    bot_z[3] = to_float(40)
+    bot_x[4] = to_float(87)
+    bot_z[4] = to_float(70)
+    bot_x[5] = to_float(61)
+    bot_z[5] = to_float(76)
+    bot_x[6] = to_float(29)
+    bot_z[6] = to_float(69)
+    bot_x[7] = to_float(12)
+    bot_z[7] = to_float(48)
+    bot_x[8] = to_float(43)
+    bot_z[8] = to_float(28)
+    bot_x[9] = to_float(78)
+    bot_z[9] = to_float(58)
+    loot_x[0] = to_float(34)
+    loot_z[0] = to_float(25)
+    loot_kind[0] = 0
+    loot_x[1] = to_float(78)
+    loot_z[1] = to_float(29)
+    loot_kind[1] = 1
+    loot_x[2] = to_float(24)
+    loot_z[2] = to_float(56)
+    loot_kind[2] = 1
+    loot_x[3] = to_float(68)
+    loot_z[3] = to_float(65)
+    loot_kind[3] = 0
+    loot_x[4] = to_float(53)
+    loot_z[4] = to_float(19)
+    loot_kind[4] = 1
+    let player_x = to_float(55)
+    let player_z = to_float(46)
+    let player_health = to_float(100)
+    let facing = -1.5708
+    let camera_pitch = to_float(0)
+    let last_mouse_x = gui_get_mouse_x()
+    let last_mouse_y = gui_get_mouse_y()
+    let ammo = 12
+    let eliminations = 0
+    let alive_bots = 10
+    let match_time = to_float(0)
+    let shot_cooldown = to_float(0)
+    let storm_damage_timer = to_float(0)
+    let game_over = false
+    let won = false
+    let running = true
+    while running and not gui_window_should_close():
+        gui_poll_events()
+        gui_begin_frame()
+        let dt = gui_get_delta_time()
+        if dt > 0.05:
+            dt = 0.05
+        let mouse_x = gui_get_mouse_x()
+        let mouse_y = gui_get_mouse_y()
+        let mouse_delta_x = mouse_x - last_mouse_x
+        let mouse_delta_y = mouse_y - last_mouse_y
+        last_mouse_x = mouse_x
+        last_mouse_y = mouse_y
+        if gui_is_key_down(KEY_ESCAPE):
+            running = false
+        if game_over and gui_is_key_down(KEY_R):
+            player_x = to_float(55)
+            player_z = to_float(46)
+            player_health = to_float(100)
+            facing = -1.5708
+            camera_pitch = to_float(0)
+            ammo = 12
+            eliminations = 0
+            alive_bots = 10
+            match_time = to_float(0)
+            shot_cooldown = to_float(0)
+            storm_damage_timer = to_float(0)
+            game_over = false
+            won = false
+            let reset_bot = 0
+            while reset_bot < 10:
+                bot_health[reset_bot] = to_float(100)
+                bot_alive[reset_bot] = 1
+                bot_fire_timer[reset_bot] = to_float(1)
+                reset_bot = reset_bot + 1
+            bot_x[0] = to_float(18)
+            bot_z[0] = to_float(18)
+            bot_x[1] = to_float(42)
+            bot_z[1] = to_float(14)
+            bot_x[2] = to_float(82)
+            bot_z[2] = to_float(18)
+            bot_x[3] = to_float(96)
+            bot_z[3] = to_float(40)
+            bot_x[4] = to_float(87)
+            bot_z[4] = to_float(70)
+            bot_x[5] = to_float(61)
+            bot_z[5] = to_float(76)
+            bot_x[6] = to_float(29)
+            bot_z[6] = to_float(69)
+            bot_x[7] = to_float(12)
+            bot_z[7] = to_float(48)
+            bot_x[8] = to_float(43)
+            bot_z[8] = to_float(28)
+            bot_x[9] = to_float(78)
+            bot_z[9] = to_float(58)
+            loot_active[0] = 1
+            loot_active[1] = 1
+            loot_active[2] = 1
+            loot_active[3] = 1
+            loot_active[4] = 1
+            let reset_bullet = 0
+            while reset_bullet < 24:
+                bullet_active[reset_bullet] = 0
+                reset_bullet = reset_bullet + 1
+        if not game_over:
+            match_time = match_time + dt
+            if shot_cooldown > to_float(0):
+                shot_cooldown = shot_cooldown - dt
+            let forward_input = to_float(0)
+            let strafe_input = to_float(0)
+            if gui_is_key_down(KEY_W) or gui_is_key_down(KEY_UP):
+                forward_input = forward_input + to_float(1)
+            if gui_is_key_down(KEY_S) or gui_is_key_down(KEY_DOWN):
+                forward_input = forward_input - to_float(1)
+            if gui_is_key_down(KEY_A) or gui_is_key_down(KEY_LEFT):
+                strafe_input = strafe_input - to_float(1)
+            if gui_is_key_down(KEY_D) or gui_is_key_down(KEY_RIGHT):
+                strafe_input = strafe_input + to_float(1)
+            let move_length = sqrt(forward_input * forward_input + strafe_input * strafe_input)
+            if move_length > to_float(0):
+                forward_input = forward_input / move_length
+                strafe_input = strafe_input / move_length
+                let forward_x = cos(facing)
+                let forward_z = sin(facing)
+                let right_x = -sin(facing)
+                let right_z = cos(facing)
+                player_x = player_x + (forward_x * forward_input + right_x * strafe_input) * to_float(13) * dt
+                player_z = player_z + (forward_z * forward_input + right_z * strafe_input) * to_float(13) * dt
+            if player_x < to_float(2):
+                player_x = to_float(2)
+            if player_x > to_float(110):
+                player_x = to_float(110)
+            if player_z < to_float(2):
+                player_z = to_float(2)
+            if player_z > to_float(88):
+                player_z = to_float(88)
+            facing = facing + to_float(mouse_delta_x) * 0.006
+            camera_pitch = camera_pitch - to_float(mouse_delta_y) * 0.006
+            if camera_pitch < -1.25:
+                camera_pitch = -1.25
+            if camera_pitch > 1.25:
+                camera_pitch = 1.25
+            if gui_is_key_down(KEY_R) and ammo < 12:
+                ammo = 12
+            if gui_is_key_down(KEY_SPACE) and shot_cooldown <= to_float(0) and ammo > 0:
+                let bullet_slot = 0
+                while bullet_slot < 24 and bullet_active[bullet_slot] == 1:
+                    bullet_slot = bullet_slot + 1
+                if bullet_slot < 24:
+                    bullet_x[bullet_slot] = player_x + cos(facing) * 1.5
+                    bullet_y[bullet_slot] = 1.4
+                    bullet_z[bullet_slot] = player_z + sin(facing) * 1.5
+                    bullet_vx[bullet_slot] = cos(facing) * cos(camera_pitch) * to_float(36)
+                    bullet_vz[bullet_slot] = sin(facing) * cos(camera_pitch) * to_float(36)
+                    bullet_vy[bullet_slot] = sin(camera_pitch) * to_float(36)
+                    bullet_active[bullet_slot] = 1
+                    ammo = ammo - 1
+                    shot_cooldown = 0.24
+            let storm_radius = to_float(40) - match_time * 0.22
+            if storm_radius < to_float(8):
+                storm_radius = to_float(8)
+            let storm_dx = player_x - to_float(56)
+            let storm_dz = player_z - to_float(45)
+            if sqrt(storm_dx * storm_dx + storm_dz * storm_dz) > storm_radius:
+                storm_damage_timer = storm_damage_timer + dt
+                if storm_damage_timer >= 0.5:
+                    storm_damage_timer = to_float(0)
+                    player_health = player_health - to_float(5)
+            else:
+                storm_damage_timer = to_float(0)
+            let loot_index = 0
+            while loot_index < 5:
+                if loot_active[loot_index] == 1:
+                    let loot_dx = player_x - loot_x[loot_index]
+                    let loot_dz = player_z - loot_z[loot_index]
+                    if sqrt(loot_dx * loot_dx + loot_dz * loot_dz) < 2.2:
+                        loot_active[loot_index] = 0
+                        if loot_kind[loot_index] == 0:
+                            player_health = player_health + to_float(30)
+                            if player_health > to_float(100):
+                                player_health = to_float(100)
+                        else:
+                            ammo = ammo + 12
+                loot_index = loot_index + 1
+            let update_bullet = 0
+            while update_bullet < 24:
+                if bullet_active[update_bullet] == 1:
+                    bullet_x[update_bullet] = bullet_x[update_bullet] + bullet_vx[update_bullet] * dt
+                    bullet_y[update_bullet] = bullet_y[update_bullet] + bullet_vy[update_bullet] * dt
+                    bullet_z[update_bullet] = bullet_z[update_bullet] + bullet_vz[update_bullet] * dt
+                    if bullet_x[update_bullet] < to_float(0) or bullet_x[update_bullet] > to_float(112) or bullet_z[update_bullet] < to_float(0) or bullet_z[update_bullet] > to_float(90) or bullet_y[update_bullet] < to_float(0):
+                        bullet_active[update_bullet] = 0
+                    let check_bot = 0
+                    while check_bot < 10 and bullet_active[update_bullet] == 1:
+                        if bot_alive[check_bot] == 1:
+                            let hit_x = bullet_x[update_bullet] - bot_x[check_bot]
+                            let hit_z = bullet_z[update_bullet] - bot_z[check_bot]
+                            let hit_height = bullet_y[update_bullet] - 0.9
+                            if sqrt(hit_x * hit_x + hit_z * hit_z) < 1.7 and hit_height > -0.7 and hit_height < 0.7:
+                                bot_health[check_bot] = bot_health[check_bot] - to_float(35)
+                                bullet_active[update_bullet] = 0
+                                if bot_health[check_bot] <= to_float(0):
+                                    bot_alive[check_bot] = 0
+                                    alive_bots = alive_bots - 1
+                                    eliminations = eliminations + 1
+                        check_bot = check_bot + 1
+                update_bullet = update_bullet + 1
+            let update_bot = 0
+            while update_bot < 10:
+                if bot_alive[update_bot] == 1:
+                    let bot_dx = player_x - bot_x[update_bot]
+                    let bot_dz = player_z - bot_z[update_bot]
+                    let bot_distance = sqrt(bot_dx * bot_dx + bot_dz * bot_dz)
+                    if bot_distance > to_float(7):
+                        bot_x[update_bot] = bot_x[update_bot] + bot_dx / bot_distance * 1.4 * dt
+                        bot_z[update_bot] = bot_z[update_bot] + bot_dz / bot_distance * 1.4 * dt
+                    if bot_fire_timer[update_bot] > to_float(0):
+                        bot_fire_timer[update_bot] = bot_fire_timer[update_bot] - dt
+                    if match_time > to_float(8) and bot_distance < to_float(9) and bot_fire_timer[update_bot] <= to_float(0):
+                        player_health = player_health - to_float(4)
+                        bot_fire_timer[update_bot] = 2.4
+                update_bot = update_bot + 1
+            if player_health <= to_float(0):
+                player_health = to_float(0)
+                game_over = true
+                won = false
+            elif alive_bots == 0:
+                game_over = true
+                won = true
+        let camera_x = player_x
+        let camera_y = camera_pitch
+        let camera_z = player_z
+        gui_clear(color_rgb(17, 24, 31))
+        gui_draw_rect(0, 0, 700, 330, color_rgb(100, 164, 207))
+        gui_draw_rect(0, 330, 700, 340, color_rgb(77, 132, 71))
+        gui_draw_text("FRONTLANG ROYALE  |  FIRST-PERSON", 20, 20, 1, color_white())
+        let ground_x = to_float(0)
+        while ground_x <= to_float(112):
+            draw_world_line(ground_x, to_float(0), to_float(0), ground_x, to_float(0), to_float(90), camera_x, camera_y, camera_z, facing, color_rgb(94, 151, 81))
+            ground_x = ground_x + to_float(8)
+        let ground_z = to_float(0)
+        while ground_z <= to_float(90):
+            draw_world_line(to_float(0), to_float(0), ground_z, to_float(112), to_float(0), ground_z, camera_x, camera_y, camera_z, facing, color_rgb(94, 151, 81))
+            ground_z = ground_z + to_float(8)
+        draw_world_line(to_float(0), 0.02, to_float(18), to_float(112), 0.02, to_float(72), camera_x, camera_y, camera_z, facing, color_rgb(157, 138, 99))
+        draw_world_line(to_float(0), 0.02, to_float(72), to_float(112), 0.02, to_float(18), camera_x, camera_y, camera_z, facing, color_rgb(157, 138, 99))
+        draw_building(to_float(34), to_float(25), to_float(7), to_float(6), 3.2, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(42), to_float(23), to_float(5), to_float(5), 2.8, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(38), to_float(32), to_float(6), to_float(4), 2.5, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(78), to_float(29), to_float(7), to_float(6), 3.4, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(86), to_float(32), to_float(5), to_float(5), 2.6, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(24), to_float(56), to_float(6), to_float(5), 2.8, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(32), to_float(60), to_float(5), to_float(5), 2.4, camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(68), to_float(65), to_float(7), to_float(6), to_float(3), camera_x, camera_y, camera_z, facing)
+        draw_building(to_float(76), to_float(68), to_float(5), to_float(5), 2.5, camera_x, camera_y, camera_z, facing)
+        let tree_index = 0
+        while tree_index < 12:
+            let tree_x = to_float(7) + to_float(tree_index) * to_float(8)
+            let tree_z = to_float(10) + to_float((tree_index * 17) % 68)
+            let tree_depth = world_depth(tree_x, tree_z, camera_x, camera_z, facing)
+            if tree_depth > 0.8 and tree_depth < to_float(60):
+                let tree_screen_x = world_screen_x(tree_x, tree_z, camera_x, camera_z, facing)
+                let tree_base_y = world_screen_y(tree_x, to_float(0), tree_z, camera_x, camera_y, camera_z, facing)
+                let tree_top_y = world_screen_y(tree_x, 3.2, tree_z, camera_x, camera_y, camera_z, facing)
+                let tree_size = to_int(100.0 / tree_depth)
+                if tree_size < 3:
+                    tree_size = 3
+                gui_draw_line(tree_screen_x, tree_base_y, tree_screen_x, tree_top_y, color_rgb(104, 78, 50))
+                gui_draw_circle(tree_screen_x, tree_top_y, tree_size, color_rgb(43, 103, 57))
+            tree_index = tree_index + 1
+        let storm_radius_draw = to_float(40) - match_time * 0.22
+        if storm_radius_draw < to_float(8):
+            storm_radius_draw = to_float(8)
+        let ring_step = 0
+        while ring_step < 48:
+            let angle_a = to_float(ring_step) * 0.1309
+            let angle_b = to_float(ring_step + 1) * 0.1309
+            let ring_x1 = to_float(56) + cos(angle_a) * storm_radius_draw
+            let ring_z1 = to_float(45) + sin(angle_a) * storm_radius_draw
+            let ring_x2 = to_float(56) + cos(angle_b) * storm_radius_draw
+            let ring_z2 = to_float(45) + sin(angle_b) * storm_radius_draw
+            draw_world_line(ring_x1, 0.08, ring_z1, ring_x2, 0.08, ring_z2, camera_x, camera_y, camera_z, facing, color_rgb(100, 216, 255))
+            ring_step = ring_step + 1
+        let draw_loot = 0
+        while draw_loot < 5:
+            if loot_active[draw_loot] == 1:
+                let loot_color = color_rgb(93, 239, 127)
+                if loot_kind[draw_loot] == 1:
+                    loot_color = color_rgb(255, 203, 72)
+                let loot_depth = world_depth(loot_x[draw_loot], loot_z[draw_loot], camera_x, camera_z, facing)
+                if loot_depth > 0.5:
+                    let loot_size = to_int(45.0 / loot_depth)
+                    if loot_size < 2:
+                        loot_size = 2
+                    gui_draw_circle(world_screen_x(loot_x[draw_loot], loot_z[draw_loot], camera_x, camera_z, facing), world_screen_y(loot_x[draw_loot], 0.5, loot_z[draw_loot], camera_x, camera_y, camera_z, facing), loot_size, loot_color)
+            draw_loot = draw_loot + 1
+        let draw_bots = 0
+        while draw_bots < 10:
+            if bot_alive[draw_bots] == 1:
+                draw_humanoid(bot_x[draw_bots], bot_z[draw_bots], camera_x, camera_y, camera_z, facing, color_rgb(235, 89, 79))
+            draw_bots = draw_bots + 1
+        let draw_bullets = 0
+        while draw_bullets < 24:
+            if bullet_active[draw_bullets] == 1:
+                let bullet_depth = world_depth(bullet_x[draw_bullets], bullet_z[draw_bullets], camera_x, camera_z, facing)
+                if bullet_depth > 0.5:
+                    gui_draw_circle(world_screen_x(bullet_x[draw_bullets], bullet_z[draw_bullets], camera_x, camera_z, facing), world_screen_y(bullet_x[draw_bullets], bullet_y[draw_bullets], bullet_z[draw_bullets], camera_x, camera_y, camera_z, facing), 3, color_rgb(255, 244, 154))
+            draw_bullets = draw_bullets + 1
+        gui_draw_rect(307, 535, 86, 112, color_rgb(43, 49, 57))
+        gui_draw_rect(323, 512, 54, 99, color_rgb(69, 78, 87))
+        gui_draw_rect(335, 490, 30, 82, color_rgb(103, 113, 121))
+        gui_draw_rect(337, 483, 26, 28, color_rgb(151, 164, 168))
+        gui_draw_line(350, 318, 350, 327, color_white())
+        gui_draw_line(350, 333, 350, 342, color_white())
+        gui_draw_line(338, 330, 347, 330, color_white())
+        gui_draw_line(353, 330, 362, 330, color_white())
+        gui_draw_circle(350, 330, 2, color_rgb(255, 92, 82))
+        gui_draw_rect(722, 96, 230, 540, color_rgb(29, 39, 49))
+        gui_draw_text("ISLAND MAP", 740, 108, 1, color_rgb(130, 211, 255))
+        gui_draw_rect(742, 130, 178, 144, color_rgb(66, 112, 68))
+        gui_draw_line(755, 150, 900, 250, color_rgb(142, 126, 91))
+        gui_draw_line(755, 250, 900, 150, color_rgb(142, 126, 91))
+        let map_ring_step = 0
+        while map_ring_step < 48:
+            let map_angle_a = to_float(map_ring_step) * 0.1309
+            let map_angle_b = to_float(map_ring_step + 1) * 0.1309
+            let map_ring_x1 = to_float(56) + cos(map_angle_a) * storm_radius_draw
+            let map_ring_z1 = to_float(45) + sin(map_angle_a) * storm_radius_draw
+            let map_ring_x2 = to_float(56) + cos(map_angle_b) * storm_radius_draw
+            let map_ring_z2 = to_float(45) + sin(map_angle_b) * storm_radius_draw
+            gui_draw_line(map_screen_x(map_ring_x1), map_screen_y(map_ring_z1), map_screen_x(map_ring_x2), map_screen_y(map_ring_z2), color_rgb(100, 216, 255))
+            map_ring_step = map_ring_step + 1
+        let map_bot = 0
+        while map_bot < 10:
+            if bot_alive[map_bot] == 1:
+                gui_draw_circle(map_screen_x(bot_x[map_bot]), map_screen_y(bot_z[map_bot]), 3, color_rgb(235, 89, 79))
+            map_bot = map_bot + 1
+        gui_draw_circle(map_screen_x(player_x), map_screen_y(player_z), 4, color_rgb(78, 237, 255))
+        gui_draw_text("HEALTH", 740, 290, 1, color_white())
+        gui_draw_rect(740, 312, 190, 16, color_rgb(65, 65, 71))
+        gui_draw_rect(740, 312, to_int(player_health * 1.9), 16, color_rgb(71, 220, 123))
+        gui_draw_text(int_to_string(to_int(player_health)) + " / 100", 740, 334, 1, color_white())
+        gui_draw_text("AMMO      " + int_to_string(ammo), 740, 372, 1, color_rgb(255, 211, 96))
+        gui_draw_text("ELIMS     " + int_to_string(eliminations), 740, 406, 1, color_white())
+        gui_draw_text("OPPONENTS " + int_to_string(alive_bots), 740, 440, 1, color_rgb(255, 135, 120))
+        gui_draw_text("TIME      " + int_to_string(to_int(match_time)) + "s", 740, 474, 1, color_white())
+        gui_draw_text("STORM: stay in blue ring", 740, 510, 1, color_rgb(100, 216, 255))
+        gui_draw_text("Green: medkit (+30 HP)", 740, 550, 1, color_rgb(128, 230, 145))
+        gui_draw_text("Gold: ammo (+12)", 740, 576, 1, color_rgb(255, 211, 96))
+        gui_draw_text("WASD / ARROWS: move", 740, 606, 1, color_rgb(190, 203, 211))
+        gui_draw_text("MOUSE LOOK   WASD / ARROWS MOVE   SPACE FIRE   R RELOAD   ESC QUIT", 20, 652, 1, color_rgb(211, 221, 226))
+        if game_over:
+            gui_draw_rect(220, 275, 350, 115, color_rgb(24, 31, 38))
+            if won:
+                gui_draw_text("VICTORY! ISLAND SECURED", 250, 300, 2, color_rgb(111, 244, 151))
+            else:
+                gui_draw_text("ELIMINATED", 300, 300, 2, color_rgb(255, 104, 98))
+            gui_draw_text("Press R to play again", 290, 346, 1, color_white())
+        gui_end_frame()
+    gui_close_window()
+    return 0

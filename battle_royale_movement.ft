@@ -1,0 +1,285 @@
+# Perspective-projected 3D wireframe movement demo.
+# FrontLang's built-in GUI draws 2D primitives; these helpers project 3D points
+# into a perspective view so the character and floor appear three-dimensional.
+
+include "std:gui"
+include "std:game"
+include "std:math"
+include "std:string"
+
+fn move_toward(current: Float, target: Float, max_delta: Float) -> Float:
+    if current < target:
+        if target - current <= max_delta:
+            return target
+        return current + max_delta
+    if current > target:
+        if current - target <= max_delta:
+            return target
+        return current - max_delta
+    return current
+
+fn project_x(world_x: Float, world_y: Float, world_z: Float, camera_x: Float, camera_y: Float, camera_z: Float, camera_yaw: Float) -> Int:
+    let dx = world_x - camera_x
+    let dz = world_z - camera_z
+    let view_x = dx * cos(camera_yaw) - dz * sin(camera_yaw)
+    let depth = dx * sin(camera_yaw) + dz * cos(camera_yaw)
+    if depth < 0.5:
+        depth = 0.5
+    return 400 + to_int(view_x * 300.0 / depth)
+
+fn project_y(world_x: Float, world_y: Float, world_z: Float, camera_x: Float, camera_y: Float, camera_z: Float, camera_yaw: Float) -> Int:
+    let dx = world_x - camera_x
+    let dz = world_z - camera_z
+    let view_y = world_y - camera_y
+    let depth = dx * sin(camera_yaw) + dz * cos(camera_yaw)
+    if depth < 0.5:
+        depth = 0.5
+    return 300 - to_int(view_y * 300.0 / depth)
+
+fn draw_ground_line(x1: Float, z1: Float, x2: Float, z2: Float, camera_x: Float, camera_y: Float, camera_z: Float, camera_yaw: Float, col: Color):
+    let dx1 = x1 - camera_x
+    let dz1 = z1 - camera_z
+    let depth1 = dx1 * sin(camera_yaw) + dz1 * cos(camera_yaw)
+    let dx2 = x2 - camera_x
+    let dz2 = z2 - camera_z
+    let depth2 = dx2 * sin(camera_yaw) + dz2 * cos(camera_yaw)
+    if depth1 > 0.5 and depth2 > 0.5:
+        let screen_x1 = project_x(x1, camera_y, z1, camera_x, camera_y, camera_z, camera_yaw)
+        let screen_y1 = project_y(x1, camera_y, z1, camera_x, camera_y, camera_z, camera_yaw)
+        let screen_x2 = project_x(x2, camera_y, z2, camera_x, camera_y, camera_z, camera_yaw)
+        let screen_y2 = project_y(x2, camera_y, z2, camera_x, camera_y, camera_z, camera_yaw)
+        gui_draw_line(screen_x1, screen_y1, screen_x2, screen_y2, col)
+
+fn draw_character_segment(player_x: Float, player_y: Float, player_z: Float, camera_x: Float, camera_y: Float, camera_z: Float, facing: Float, camera_yaw: Float, f1: Float, r1: Float, h1: Float, f2: Float, r2: Float, h2: Float, col: Color):
+    let world_x1 = player_x + sin(facing) * f1 + cos(facing) * r1
+    let world_z1 = player_z + cos(facing) * f1 - sin(facing) * r1
+    let world_x2 = player_x + sin(facing) * f2 + cos(facing) * r2
+    let world_z2 = player_z + cos(facing) * f2 - sin(facing) * r2
+    let world_y1 = player_y + h1
+    let world_y2 = player_y + h2
+    let screen_x1 = project_x(world_x1, world_y1, world_z1, camera_x, camera_y, camera_z, camera_yaw)
+    let screen_y1 = project_y(world_x1, world_y1, world_z1, camera_x, camera_y, camera_z, camera_yaw)
+    let screen_x2 = project_x(world_x2, world_y2, world_z2, camera_x, camera_y, camera_z, camera_yaw)
+    let screen_y2 = project_y(world_x2, world_y2, world_z2, camera_x, camera_y, camera_z, camera_yaw)
+    gui_draw_line(screen_x1, screen_y1, screen_x2, screen_y2, col)
+
+fn main() -> Int:
+    let window_w = 800
+    let window_h = 600
+    gui_init_window(window_w, window_h, "Battle Royale - Character Movement")
+
+    # World state: X/Z are ground-plane coordinates; Y is jump height.
+    let player_x = 0.0
+    let player_y = 0.0
+    let player_z = 0.0
+    let velocity_x = 0.0
+    let velocity_y = 0.0
+    let velocity_z = 0.0
+    let camera_yaw = 0.0
+    let grounded = true
+    let animation_time = 0.0
+
+    let gravity = 20.0
+    let jump_speed = 7.5
+    let turn_speed = 2.4
+    let walk_speed = 6.0
+    let sprint_speed = 9.0
+    let crouch_speed = 2.5
+    let arena_limit = 18.0
+
+    let running = true
+    while running and not gui_window_should_close():
+        gui_poll_events()
+        gui_begin_frame()
+
+        let dt = gui_get_delta_time()
+        if dt > 0.05:
+            dt = 0.05
+
+        if gui_is_key_down(KEY_ESCAPE):
+            running = false
+
+        # Arrow keys orbit the camera; movement is camera-relative.
+        if gui_is_key_down(KEY_LEFT):
+            camera_yaw = camera_yaw - turn_speed * dt
+        if gui_is_key_down(KEY_RIGHT):
+            camera_yaw = camera_yaw + turn_speed * dt
+
+        let forward_input = 0.0
+        let strafe_input = 0.0
+        if gui_is_key_down(KEY_W):
+            forward_input = forward_input + 1.0
+        if gui_is_key_down(KEY_S):
+            forward_input = forward_input - 1.0
+        if gui_is_key_down(KEY_D):
+            strafe_input = strafe_input + 1.0
+        if gui_is_key_down(KEY_A):
+            strafe_input = strafe_input - 1.0
+
+        # Normalize diagonal input so it does not move faster.
+        let input_length = sqrt(forward_input * forward_input + strafe_input * strafe_input)
+        if input_length > 0.0:
+            forward_input = forward_input / input_length
+            strafe_input = strafe_input / input_length
+
+        let move_speed = walk_speed
+        let is_sprinting = gui_is_key_down(KEY_SHIFT) and forward_input > 0.0
+        let is_crouching = gui_is_key_down(KEY_CTRL)
+        if is_sprinting:
+            move_speed = sprint_speed
+        if is_crouching:
+            move_speed = crouch_speed
+
+        let forward_x = sin(camera_yaw)
+        let forward_z = cos(camera_yaw)
+        let right_x = cos(camera_yaw)
+        let right_z = -sin(camera_yaw)
+        let target_velocity_x = (forward_x * forward_input + right_x * strafe_input) * move_speed
+        let target_velocity_z = (forward_z * forward_input + right_z * strafe_input) * move_speed
+
+        let acceleration = 18.0
+        if not grounded:
+            acceleration = 5.0
+        velocity_x = move_toward(velocity_x, target_velocity_x, acceleration * dt)
+        velocity_z = move_toward(velocity_z, target_velocity_z, acceleration * dt)
+
+        if gui_is_key_down(KEY_SPACE) and grounded:
+            velocity_y = jump_speed
+            grounded = false
+
+        if not grounded:
+            velocity_y = velocity_y - gravity * dt
+            player_y = player_y + velocity_y * dt
+            if player_y <= 0.0:
+                player_y = 0.0
+                velocity_y = 0.0
+                grounded = true
+
+        player_x = player_x + velocity_x * dt
+        player_z = player_z + velocity_z * dt
+
+        if player_x < -arena_limit:
+            player_x = -arena_limit
+            velocity_x = 0.0
+        if player_x > arena_limit:
+            player_x = arena_limit
+            velocity_x = 0.0
+        if player_z < -arena_limit:
+            player_z = -arena_limit
+            velocity_z = 0.0
+        if player_z > arena_limit:
+            player_z = arena_limit
+            velocity_z = 0.0
+
+        animation_time = animation_time + dt
+
+        # Follow behind the player while keeping the terrain fixed in world space.
+        let camera_x = player_x - sin(camera_yaw) * 5.0
+        let camera_y = player_y + 2.4
+        let camera_z = player_z - cos(camera_yaw) * 5.0
+
+        # Sky and visible green ground make the terrain easy to distinguish.
+        gui_clear(color_rgb(112, 183, 229))
+        gui_draw_rect(0, 288, window_w, window_h - 288, color_rgb(57, 111, 55))
+        gui_draw_circle(90, 300, 90, color_rgb(75, 132, 68))
+        gui_draw_circle(250, 300, 115, color_rgb(68, 124, 64))
+        gui_draw_circle(590, 300, 110, color_rgb(70, 128, 65))
+        gui_draw_circle(760, 300, 105, color_rgb(77, 137, 70))
+
+        # Horizontal color bands suggest distance and texture across the land.
+        let terrain_band_y = 300
+        let terrain_band_index = 0
+        while terrain_band_y < window_h:
+            let terrain_color = color_rgb(66, 128, 59)
+            if terrain_band_index % 2 == 0:
+                terrain_color = color_rgb(73, 137, 63)
+            if terrain_band_index > 5:
+                terrain_color = color_rgb(58, 116, 51)
+            gui_draw_rect(0, terrain_band_y, window_w, 22, terrain_color)
+            terrain_band_y = terrain_band_y + 22
+            terrain_band_index = terrain_band_index + 1
+
+        # Perspective floor grid uses fixed world coordinates, so it scrolls beneath the player.
+        gui_draw_text("3D CHARACTER MOVEMENT (WIREFRAME)", 32, 24, 2, color_white())
+        gui_draw_text("WASD MOVE   ARROWS LOOK   SHIFT SPRINT   CTRL CROUCH   SPACE JUMP   ESC QUIT", 32, 66, 1, color_gray())
+
+        let grid_color = color_rgb(41, 62, 72)
+        let grid_z = -40.0
+        while grid_z <= 60.0:
+            draw_ground_line(-40.0, grid_z, 40.0, grid_z, camera_x, camera_y, camera_z, camera_yaw, grid_color)
+            grid_z = grid_z + 2.0
+        let grid_x = -40.0
+        while grid_x <= 40.0:
+            draw_ground_line(grid_x, -40.0, grid_x, 60.0, camera_x, camera_y, camera_z, camera_yaw, grid_color)
+            grid_x = grid_x + 2.0
+
+        # Fixed-world grass tufts provide visible terrain detail as the camera moves.
+        let grass_x = floor(player_x / 6.0) * 6.0 - 30.0
+        while grass_x <= floor(player_x / 6.0) * 6.0 + 30.0:
+            let grass_z = floor(player_z / 5.0) * 5.0 - 5.0
+            while grass_z <= floor(player_z / 5.0) * 5.0 + 40.0:
+                let tuft_world_x = grass_x
+                let tuft_world_z = grass_z
+                let tuft_dx = tuft_world_x - camera_x
+                let tuft_dz = tuft_world_z - camera_z
+                let tuft_depth = tuft_dx * sin(camera_yaw) + tuft_dz * cos(camera_yaw)
+                if tuft_depth > 1.0 and tuft_depth < 32.0:
+                    let tuft_x = project_x(tuft_world_x, 0.0, tuft_world_z, camera_x, camera_y, camera_z, camera_yaw)
+                    let tuft_y = project_y(tuft_world_x, 0.0, tuft_world_z, camera_x, camera_y, camera_z, camera_yaw)
+                    let tuft_size = to_int(24.0 / tuft_depth)
+                    if tuft_size < 1:
+                        tuft_size = 1
+                    gui_draw_line(tuft_x, tuft_y, tuft_x - tuft_size, tuft_y - tuft_size * 2, color_rgb(104, 173, 75))
+                    gui_draw_line(tuft_x, tuft_y, tuft_x + tuft_size, tuft_y - tuft_size * 2, color_rgb(91, 157, 65))
+                grass_z = grass_z + 5.0
+            grass_x = grass_x + 6.0
+
+        let is_moving = forward_input != 0.0 or strafe_input != 0.0
+        let leg_swing = 0.0
+        if is_moving and grounded:
+            leg_swing = sin(animation_time * 9.0) * 0.32
+
+        let character_color = color_rgb(60, 235, 170)
+        let gear_color = color_rgb(100, 180, 255)
+        let joint_color = color_rgb(235, 240, 245)
+
+        # Humanoid wireframe points are local forward/right/height coordinates.
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, 0.0, 0.85, 0.0, 0.0, 1.48, character_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, 0.0, 1.12, 0.0, -0.28, 1.35, gear_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, 0.0, 1.12, 0.0, 0.28, 1.35, gear_color)
+
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, -0.28, 1.35, 0.0, -0.42, 0.92, character_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, 0.28, 1.35, 0.0, 0.42, 0.92, character_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, -0.42, 0.92, leg_swing, -0.42, 0.5, gear_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, 0.0, 0.42, 0.92, -leg_swing, 0.42, 0.5, gear_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, leg_swing, -0.42, 0.5, leg_swing + 0.12, -0.42, 0.08, character_color)
+        draw_character_segment(player_x, player_y, player_z, camera_x, camera_y, camera_z, camera_yaw, camera_yaw, -leg_swing, 0.42, 0.5, -leg_swing + 0.12, 0.42, 0.08, character_color)
+
+        let head_world_x = player_x + sin(camera_yaw) * 1.68
+        let head_world_z = player_z + cos(camera_yaw) * 1.68
+        let head_screen_x = project_x(head_world_x, player_y + 1.68, head_world_z, camera_x, camera_y, camera_z, camera_yaw)
+        let head_screen_y = project_y(head_world_x, player_y + 1.68, head_world_z, camera_x, camera_y, camera_z, camera_yaw)
+        gui_draw_circle(head_screen_x, head_screen_y, 10, joint_color)
+
+        gui_draw_text("WORLD POSITION", 570, 150, 1, color_rgb(116, 193, 255))
+        gui_draw_text("X: " + int_to_string(to_int(player_x)), 570, 182, 1, color_white())
+        gui_draw_text("Y: " + int_to_string(to_int(player_y * 100.0)) + " cm", 570, 208, 1, color_white())
+        gui_draw_text("Z: " + int_to_string(to_int(player_z)), 570, 234, 1, color_white())
+        gui_draw_text("CAMERA YAW", 570, 282, 1, color_rgb(116, 193, 255))
+        gui_draw_text(int_to_string(to_int(camera_yaw * 57.2958)) + " deg", 570, 314, 1, color_white())
+
+        let movement_state = "WALKING"
+        if not grounded:
+            movement_state = "AIRBORNE"
+        elif is_crouching:
+            movement_state = "CROUCHING"
+        elif is_sprinting:
+            movement_state = "SPRINTING"
+        gui_draw_text("STATE", 510, 362, 1, color_rgb(116, 193, 255))
+        gui_draw_text(movement_state, 510, 394, 1, color_white())
+        gui_draw_text("Perspective wireframe preview; not a GPU-rendered 3D model.", 32, 570, 1, color_gray())
+
+        gui_end_frame()
+
+    gui_close_window()
+    return 0
